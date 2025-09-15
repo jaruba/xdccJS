@@ -30,6 +30,15 @@ export type ParamsDL = ParamsCTCP & {
    * ```
    */
   throttle?:number
+  /**
+   * Memory Cache Limit (bytes)
+   * @default undefined
+   * @example
+   * ```js
+   * param.memCacheSize = 30 * 1024 * 1024
+   * ```
+   */
+  memCacheSize?:number
 }
 
 interface Pass {
@@ -55,11 +64,14 @@ export default class Downloader extends CtcpParser {
 
   protected throttle?: number;
 
+  protected memCacheSize?: number;
+
   constructor(params: ParamsDL) {
     super(params);
     this.ip = Downloader.getIp();
     this.passivePort = params.passivePort;
     this.throttle = params.throttle;
+    this.memCacheSize = params.memCacheSize;
 
     this.on('prepareDL', (downloadrequest: { fileInfo: FileInfo; candidate: Job }) => {
       this.prepareDL(downloadrequest);
@@ -177,6 +189,9 @@ export default class Downloader extends CtcpParser {
       received: 0,
       bufferType: fileInfo.length > 4294967295 ? '64bit' : '32bit',
     };
+    client.sentBytes = 0;
+    client.receivedBytes = 0;
+    client.socketPaused = false;
     client.setTimeout(this.timeout);
     client.on('timeout', () => this.onTimeOut(pass));
     client.on('error', (e) => this.onError(pass, e));
@@ -184,12 +199,23 @@ export default class Downloader extends CtcpParser {
 
     const throttle = candidate.opts ? candidate.opts.throttle : this.throttle;
 
+    const memCacheSize = (candidate.opts || {}).memCacheSize ? candidate.opts.memCacheSize : this.memCacheSize;
+
     if (throttle) {
       const tg = new ThrottleGroup({ rate: throttle });
       const thr = client.pipe(tg.throttle({ rate: throttle }));
-      thr.on('data', (data) => this.onData(pass, data, sendBuffer));
+      thr.on('data', (data) => this.onData(pass, data, sendBuffer, memCacheSize, client));
     } else {
-      client.on('data', (data) => this.onData(pass, data, sendBuffer));
+      client.on('data', (data) => this.onData(pass, data, sendBuffer, memCacheSize, client));
+    }
+    if (memCacheSize) {
+        stream.on('data', (chunk) => {
+            client.sentBytes += chunk.length;
+            if (client.socketPaused && client.receivedBytes - client.sentBytes < memCacheSize) {
+                client.socketPaused = false
+                client.resume()
+            }
+        })
     }
     client.once('data', () => this.emit('debug', 'xdccJS:: TCP_DOWNLOADING'));
     client.on('close', (e) => this.onClose(pass, e));
@@ -276,7 +302,7 @@ export default class Downloader extends CtcpParser {
     this.emit('next', args.candidate, this.verbose);
   }
 
-  private onData(args: Pass, data: Buffer, sendBuffer: Buffer): void {
+  private onData(args: Pass, data: Buffer, sendBuffer: Buffer, memCacheSize: number | undefined, client: net.Socket): void {
     const startTime = args.startTime || Date.now();
 
     if (args.received === 0) {
@@ -289,7 +315,11 @@ export default class Downloader extends CtcpParser {
     }
     args.stream.write(data);
     args.received += data.length;
-
+    client.receivedBytes = args.received;
+    if (memCacheSize && !client.socketPaused && client.receivedBytes - client.sentBytes > memCacheSize) {
+        client.socketPaused = true
+        client.pause()
+    }
     const elapsedTime = Date.now() - startTime;
     const downloadSpeed = args.received / elapsedTime
     const remainingData = args.fileInfo.length - args.received;

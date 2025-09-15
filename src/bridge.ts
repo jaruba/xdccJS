@@ -43,6 +43,7 @@ export default class Bridge extends Downloader {
       },
       retry: Bridge.is({ name: 'retry', variable: params.retry, type: 1, condition: (params.retry || 1) < 0, conditionError: 'retry must be larger than 0' }),
       throttle: Bridge.is({ name: 'throttle', variable: params.throttle, type: 0, condition: (params.throttle || 1) < 0, conditionError: 'retry must be larger than 0' }),
+      memCacheSize: Bridge.is({ name: 'memCacheSize', variable: params.memCacheSize, type: 0, condition: (params.memCacheSize || 1) < 0, conditionError: 'retry must be larger than 0' }),
       timeout: Bridge.is({ name: 'timeout', variable: params.timeout, type: 30, condition: (params.timeout || 1) < 0, conditionError: 'retry must be larger than 0' }),
       gecos: Bridge.is({ name: 'gecos', variable: params.gecos, type: 'xdccJS' }),
       version: Bridge.is({ name: 'version', variable: params.version, type: `xdccJS v${version}`})
@@ -122,6 +123,11 @@ export default class Bridge extends Downloader {
       this.print(`%success% throttle: %yellow%${this.throttle ? humanFileSize(this.throttle) : 'off'}%reset%`, 2);
     }
 
+    if(params.memCacheSize !== this.memCacheSize) {
+      this.memCacheSize = params.memCacheSize;
+      this.print(`%success% memCacheSize: %yellow%${this.memCacheSize ? humanFileSize(this.memCacheSize) : 'off'}%reset%`, 2);
+    }
+
     if(params.gecos !== this.gecos) {
       this.gecos = params.gecos;
       this.print(`%success% gecos: %yellow%${this.gecos}%reset%`, 2);
@@ -150,6 +156,7 @@ export default class Bridge extends Downloader {
         tls: this.tls,
         retry: this.retry,
         throttle: this.throttle,
+        memCacheSize: this.memCacheSize,
         timeout: this.timeout/1000,
         gecos: this.gecos,
         version: this.version,
